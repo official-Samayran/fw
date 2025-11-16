@@ -1,15 +1,12 @@
-// src/app/api/auctions/[id]/route.ts
+// src/app/api/auction/[id]/route.ts
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId, UpdateFilter, Document } from "mongodb";
 
-// Minimum increment amount (matching UI logic)
 const MIN_INCREMENT = 50;
 const DATABASE_NAME = process.env.MONGODB_DB;
-
-// --- Define Types for TypeScript to understand the schema ---
 
 interface Bid {
     userId: ObjectId;
@@ -18,12 +15,11 @@ interface Bid {
     timestamp: Date;
 }
 
-// Defines the structure for the MongoDB Auction Document
 interface AuctionDocument extends Document {
   _id: ObjectId;
   title: string;
-  bid: string; // Formatted bid string
-  currentHighBid: number; // Numeric high bid
+  bid: string;
+  currentHighBid: number;
   startingBid: number;
   bids: number;
   description: string;
@@ -32,27 +28,23 @@ interface AuctionDocument extends Document {
   endDate: Date;
   bidsHistory: Bid[]; 
   topBidderId?: ObjectId; 
-  
-  // FIX: Add index signature as a general workaround for complex update operators
   [key: string]: any; 
 }
 
-// --- FIX: Define the explicit context interface for Next.js App Router ---
 interface RouteContext {
     params: {
         id: string;
     }
 }
-// -------------------------------------------------------------------------
 
 /**
  * GET: Fetch a single auction and its bid history.
  */
 export async function GET(
   request: Request,
-  context: RouteContext // <-- FIX APPLIED HERE
+  context: RouteContext
 ) {
-  const { id } = context.params; // Destructure from the context object
+  const { id } = context.params;
 
   if (!ObjectId.isValid(id)) {
     return NextResponse.json({ error: "Invalid Auction ID" }, { status: 400 });
@@ -62,7 +54,6 @@ export async function GET(
     const client = await clientPromise;
     const db = client.db(DATABASE_NAME);
 
-    // 1. Fetch the auction
     const auction = await db.collection<AuctionDocument>("auctions").findOne({
       _id: new ObjectId(id),
     });
@@ -71,7 +62,6 @@ export async function GET(
       return NextResponse.json({ error: "Auction not found" }, { status: 404 });
     }
     
-    // 2. Check wishlist status if user is logged in
     const session = await getServerSession(authOptions);
     let isWishlisted = false;
     
@@ -84,16 +74,15 @@ export async function GET(
         isWishlisted = wishlistCount > 0;
     }
 
-
-    // 3. Return augmented auction details
     return NextResponse.json({
       ...auction,
       _id: auction._id.toString(),
       createdBy: auction.createdBy.toString(),
-      isWishlisted, // <-- Return the status
+      isWishlisted,
     });
   } catch (e) {
-    console.error("Error fetching single auction:", e);
+    // 🛑 CRITICAL LOGGING FOR DEBUGGING CONNECTION FAILURES
+    console.error(`🛑 MongoDB connection or query failed for auction ID ${id}:`, e);
     return NextResponse.json(
       { error: "Failed to fetch auction details" },
       { status: 500 }
@@ -106,17 +95,15 @@ export async function GET(
  */
 export async function POST(
   request: Request,
-  context: RouteContext // <-- FIX APPLIED HERE
+  context: RouteContext
 ) {
-  const { id } = context.params; // Destructure from the context object
-
+  const { id } = context.params;
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
   
-  // Ensure only 'bidder' role can place bids (optional check, but good practice)
   const userRole = (session.user as { role: string }).role;
   if (userRole !== "bidder") {
      return NextResponse.json({ error: "Forbidden. Only bidders can place bids." }, { status: 403 });
@@ -140,7 +127,6 @@ export async function POST(
     const db = client.db(DATABASE_NAME);
     const auctionsCollection = db.collection<AuctionDocument>("auctions"); 
 
-    // 1. Fetch current auction to validate bid
     const auction = await auctionsCollection.findOne({
       _id: new ObjectId(id),
     });
@@ -149,10 +135,7 @@ export async function POST(
       return NextResponse.json({ error: "Auction not found" }, { status: 404 });
     }
 
-    // Get current high bid (removing currency symbol and converting, defaulting to starting bid if none)
     const currentHighBid = auction.bidsHistory?.[0]?.amount || auction.startingBid || 0;
-    
-    // 2. Validate the new bid
     const minRequiredBid = currentHighBid + MIN_INCREMENT;
 
     if (numericBid < minRequiredBid) {
@@ -162,7 +145,6 @@ export async function POST(
       );
     }
     
-    // 3. Construct new bid object
     const newBid: Bid = {
         userId: new ObjectId(userId),
         userName: userName,
@@ -170,7 +152,6 @@ export async function POST(
         timestamp: new Date(),
     };
 
-    // 4. Construct the update filter
     const update: UpdateFilter<AuctionDocument> = {
         $set: {
           bid: `₹${numericBid.toLocaleString('en-IN')}`, 
@@ -188,14 +169,12 @@ export async function POST(
         } as any, 
     };
     
-    // 5. Update the auction document
     const result = await auctionsCollection.findOneAndUpdate(
       { _id: new ObjectId(id) },
       update,
       { returnDocument: "after" }
     );
 
-    // Guard against a null result (e.g., concurrency or no document matched)
     if (!result || !result.value) {
         return NextResponse.json({ error: "Failed to place bid due to concurrency or update issue." }, { status: 500 });
     }
@@ -213,7 +192,6 @@ export async function POST(
   }
 }
 
-// DELETE: Not supported for auctions (can be added later for soft delete)
 export async function DELETE() {
   return NextResponse.json({ error: "Method not allowed" }, { status: 405 });
 }
