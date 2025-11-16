@@ -150,7 +150,8 @@ export default function AuctionClient({ auctionId }: Props) {
     }
 
     try {
-        const response = await fetch(`/api/auction/${auctionId}`, {
+        // CORRECTED FETCH URL: /api/auctions/
+        const response = await fetch(`/api/auctions/${auctionId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ bidAmount: val }),
@@ -189,11 +190,19 @@ export default function AuctionClient({ auctionId }: Props) {
     async function fetchAuctionDetails() {
       try {
         setLoading(true);
-        const res = await fetch(`/api/auction/${auctionId}`);
+        // CORRECTED FETCH URL: /api/auctions/
+        const res = await fetch(`/api/auctions/${auctionId}`);
+        
         if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || 'Failed to fetch auction details.');
+          // Attempt to parse JSON error message, fallback if it's HTML
+          try {
+            const errorData = await res.json();
+            throw new Error(errorData.error || `Server responded with status ${res.status}`);
+          } catch(e) {
+             throw new Error(`Unexpected token '<' when parsing JSON. Server returned HTML/non-JSON at status ${res.status}.`);
+          }
         }
+        
         const data: AuctionDetails = await res.json();
         setAuction(data);
 
@@ -413,7 +422,7 @@ export default function AuctionClient({ auctionId }: Props) {
           {/* Comments Section */}
           <div className="comments mt-8">
             <div className="flex justify-between items-center">
-              <h3 className="text-xl font-bold" style={{ color: 'var(--accent)', margin: 0 }}>Comments</h3>
+              <h3 className="text-xl font-bold" style={{ color: 'var(--accent)' }}>Comments</h3>
               <div className="text-sm" style={{ color: 'var(--muted)' }}>{comments.length} comments</div>
             </div>
 
