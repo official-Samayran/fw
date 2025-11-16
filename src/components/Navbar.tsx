@@ -2,18 +2,21 @@
 "use client";
 
 import Link from "next/link";
-// We no longer need the modals
-// import SignupModal from "@/components/SignupModal";
-// import LoginModal from "@/components/LoginModal";
 import { useState, useEffect } from "react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { Bell, Heart } from "lucide-react"; 
+import ProfileDropdown from "./ProfileDropdown"; 
+
+// We will import the new UserAvatar component in the dropdown component itself
+
+// Define a type extension for the session user
+interface ExtendedUser {
+  name: string;
+  role: string;
+  image?: string | null;
+}
 
 export default function Navbar() {
-  // We no longer need modal state
-  // const [showSignup, setShowSignup] = useState(false);
-  // const [showLogin, setShowLogin] = useState(false);
-
   const { data: session, status } = useSession();
   const isLoading = status === "loading";
 
@@ -23,23 +26,31 @@ export default function Navbar() {
   useEffect(() => {
     if (status === "authenticated") {
       const fetchCounts = async () => {
+        
+        // 1. Fetch Notification Count
         try {
-          const [notifRes, wishRes] = await Promise.all([
-            fetch('/api/notifications/count'),
-            fetch('/api/wishlist/count')
-          ]);
-
+          const notifRes = await fetch('/api/notifications/count');
           if (notifRes.ok) {
             const data = await notifRes.json();
             setNotificationCount(data.count);
+          } else {
+            console.error("Failed to fetch notification count with status:", notifRes.status);
           }
-          
+        } catch (error) {
+          console.error("Critical error fetching notification count:", error);
+        }
+
+        // 2. Fetch Wishlist Count
+        try {
+          const wishRes = await fetch('/api/wishlist/count');
           if (wishRes.ok) {
             const data = await wishRes.json();
             setWishlistCount(data.count);
+          } else {
+            console.error("Failed to fetch wishlist count with status:", wishRes.status);
           }
         } catch (error) {
-          console.error("Failed to fetch counts:", error);
+          console.error("Critical error fetching wishlist count:", error);
         }
       };
       
@@ -49,6 +60,8 @@ export default function Navbar() {
       setWishlistCount(0);
     }
   }, [status]); 
+
+  const user = session?.user as ExtendedUser | undefined; 
 
   return (
     <header className="w-full border-b border-[#E6E3DD] bg-[#F6F3EC]">
@@ -62,9 +75,6 @@ export default function Navbar() {
           <Link href="/auction" className="hover:text-[#4B3F72]">Auctions</Link>
           <Link href="/leaderboard" className="hover:text-[#4B3F72]">Leaderboard</Link>
           <Link href="/ngos" className="hover:text-[#4B3F72]">NGOs</Link>
-          {session && (
-             <Link href="/profile/me" className="hover:text-[#4B3F72]">Profile</Link>
-          )}
         </div>
 
         <div className="flex items-center gap-4"> 
@@ -73,6 +83,7 @@ export default function Navbar() {
           ) : session ? (
             // User is logged in
             <>
+              {/* Notifications and Wishlist */}
               <Link href="/wishlist" className="relative text-gray-600 hover:text-black" title="Wishlist">
                 <Heart size={20} />
                 {wishlistCount > 0 && (
@@ -90,20 +101,18 @@ export default function Navbar() {
                 )}
               </Link>
 
-              <span className="text-sm self-center">
-                Hi, {session.user?.name}
-              </span>
-              <button
-                className="rounded-full border px-4 py-1.5 text-sm hover:bg-white"
-                onClick={() => signOut()}
-              >
-                Sign out
-              </button>
+              {/* NEW PROFILE DROPDOWN */}
+              <ProfileDropdown 
+                userName={user?.name as string}
+                userRole={user?.role}
+                profilePictureUrl={user?.image as string | null}
+              />
+
             </>
           ) : (
             // User is logged out
             <>
-              {/* --- UPDATED BUTTONS TO LINKS --- */}
+              {/* Log In / Sign Up Links */}
               <Link
                 href="/auth"
                 className="rounded-full border px-4 py-1.5 text-sm hover:bg-white"
@@ -111,20 +120,15 @@ export default function Navbar() {
                 Log in
               </Link>
               <Link
-                href="/auth?tab=signup" // <-- Links to auth page, signup tab
+                href="/auth?tab=signup" 
                 className="rounded-full bg-[#2F235A] px-4 py-1.5 text-sm text-white hover:bg-[#463985]"
               >
                 Sign up
               </Link>
-              {/* ---------------------------------- */}
             </>
           )}
         </div>
       </nav>
-
-      {/* --- MODALS ARE NOW REMOVED --- */}
-      {/* <SignupModal open={showSignup} onClose={() => setShowSignup(false)} /> */}
-      {/* <LoginModal open={showLogin} onClose={() => setShowLogin(false)} /> */}
     </header>
   );
 }

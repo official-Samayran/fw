@@ -8,7 +8,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Star, User, HeartHandshake, UploadCloud, Eye, EyeOff, LogIn } from "lucide-react";
 
 // --- PasswordInput Component ---
-// Defined outside to prevent re-render focus loss
 function PasswordInput({ value, onChange }: { 
   value: string, 
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void 
@@ -37,7 +36,6 @@ function PasswordInput({ value, onChange }: {
 }
 
 // --- ImageUploader Component ---
-// Defined outside to prevent re-render focus loss
 function ImageUploader({ imagePreview, onChange }: {
   imagePreview: string | null;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -58,7 +56,7 @@ function ImageUploader({ imagePreview, onChange }: {
           <div className="flex flex-col items-center text-gray-400">
             <UploadCloud size={32} />
             <span className="mt-2 text-sm font-semibold">Upload Photo</span>
-            <span className="text-xs">PNG, JPG</span>
+            <span className="text-xs">PNG, JPG, Max size 100kb (Demo)</span>
           </div>
         )}
         <input
@@ -75,7 +73,6 @@ function ImageUploader({ imagePreview, onChange }: {
 }
 
 // --- LoginForm Component ---
-// Contains all logic for logging in
 function LoginForm() {
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -133,7 +130,6 @@ function LoginForm() {
 }
 
 // --- SignupForm Component ---
-// Contains all logic for signing up
 function SignupForm() {
   const [role, setRole] = useState<"celebrity" | "bidder" | "ngo" | null>(null);
   const [formData, setFormData] = useState<any>({});
@@ -151,9 +147,14 @@ function SignupForm() {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result as string);
+        const base64 = reader.result as string;
+        setImagePreview(base64);
+        setFormData((prev: any) => ({ ...prev, profilePicture: base64 })); // <-- ADDED: Save image data to formData
       };
       reader.readAsDataURL(file);
+    } else {
+      setImagePreview(null);
+      setFormData((prev: any) => ({ ...prev, profilePicture: null })); // <-- ADDED: Clear image data
     }
   };
 
@@ -167,6 +168,8 @@ function SignupForm() {
     setLoading(true);
 
     const completeFormData = { ...formData, role };
+    // The image data is already in formData as 'profilePicture' if uploaded
+
     if (role === 'bidder' || role === 'celebrity') {
       completeFormData.fullName = formData.fullName;
     } else if (role === 'ngo') {

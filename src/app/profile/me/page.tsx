@@ -1,15 +1,16 @@
 // src/app/profile/me/page.tsx
 "use client";
 
-import { useState, useEffect } from "react"; // <-- 1. Import useEffect
+import { useState, useEffect } from "react"; 
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation"; // <-- 2. Import useRouter
+import { useRouter } from "next/navigation"; 
 import CreateAuctionModal from "@/components/CreateAuctionModal";
+import UserAvatar from "@/components/UserAvatar"; // <-- IMPORTED
 
 export default function MyProfilePage() {
   const { data: session, status } = useSession();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const router = useRouter(); // <-- 3. Initialize router
+  const router = useRouter(); 
 
   // --- 4. Handle redirection in a useEffect ---
   useEffect(() => {
@@ -52,7 +53,10 @@ export default function MyProfilePage() {
         <div>
           {/* Profile Card */}
           <div className="rounded-2xl bg-white p-6 shadow-sm border border-[#E8E3DB]">
-            <div className="h-20 w-20 rounded-full bg-gray-300" />
+            
+            {/* --- UPDATED AVATAR DISPLAY --- */}
+            <UserAvatar size="large" /> 
+            {/* ---------------------------- */}
 
             <h1 className="mt-4 text-2xl font-extrabold tracking-tight">
               {user.name}

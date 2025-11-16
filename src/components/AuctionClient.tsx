@@ -78,7 +78,8 @@ export default function AuctionClient({ auctionId }: Props) {
   const [isAutoEnabled, setIsAutoEnabled] = useState(false);
   const [message, setMessage] = useState('');
 
-  const [bidFeedItems, setBidFeedItems] = useState<any[]>([]);
+  // The feed items will use a unique ID for keys
+  const [bidFeedItems, setBidFeedItems] = useState<any[]>([]); 
   const [comments, setComments] = useState([
     { id: 1, name: 'Riya', time: '5m ago', text: "This artwork looks beautiful! Can't wait to see who wins." },
   ]);
@@ -93,7 +94,8 @@ export default function AuctionClient({ auctionId }: Props) {
 
   const pushFeed = useCallback((text: string, bidder: string = 'System') => {
     setBidFeedItems(prev => {
-      const newItem = { id: Date.now(), text, bidder };
+      // Use Date.now() for a unique ID for simulation items
+      const newItem = { id: Date.now(), text, bidder }; 
       return [newItem, ...prev.slice(0, 39)]; 
     });
   }, []);
@@ -119,13 +121,15 @@ export default function AuctionClient({ auctionId }: Props) {
   }, []);
 
   const quickAdd = (amount: number) => {
-    setBidAmountInput(String(currentBid + amount));
+    // Add amount to the current bid price
+    setBidAmountInput(String(currentBid + amount)); 
   };
   
   const postComment = () => {
     const txt = commentInput.trim();
     if (!txt) return;
 
+    // Use a unique ID for comments as well
     setComments(prev => [
       { id: Date.now(), name: yourUser, time: 'just now', text: txt },
       ...prev,
@@ -133,6 +137,49 @@ export default function AuctionClient({ auctionId }: Props) {
     setCommentInput('');
   };
   
+  // --- START fetchAuctionDetails function (CRITICAL FOR PRICE REFRESH) ---
+  const fetchAuctionDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/auctions/${auctionId}`);
+      
+      if (!res.ok) {
+        try {
+          const errorData = await res.json();
+          throw new Error(errorData.error || `Server responded with status ${res.status}`);
+        } catch(e) {
+           throw new Error(`Server returned status ${res.status}.`);
+        }
+      }
+      
+      const data: AuctionDetails = await res.json();
+      setAuction(data);
+
+      // Map fetched data to UI state
+      const highBid = data.currentHighBid || data.startingBid || 0;
+      setCurrentBid(highBid);
+      setBidsTotal(data.bids);
+      
+      // Populate bid feed from history
+      const initialFeed = data.bidsHistory.map((bid: BidHistoryItem, index: number) => ({
+          // FIXED: Use timestamp + index for a unique key from fetched data
+          id: bid.timestamp + index, 
+          text: `${bid.userName} bid ${formatINR(bid.amount)}`,
+          bidder: bid.userName,
+          timestamp: bid.timestamp,
+      }));
+      setBidFeedItems(initialFeed.reverse()); 
+      setTopBidder(data.bidsHistory?.[data.bidsHistory.length - 1]?.userName || 'N/A'); 
+      setImpactRaised(highBid * 5 + 10000); 
+
+    } catch (err: any) {
+      setFetchError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [auctionId]); 
+  // --- END fetchAuctionDetails function ---
+
 
   // --- API Logic Handler: Place Bid ---
   const placeBid = async () => {
@@ -150,7 +197,6 @@ export default function AuctionClient({ auctionId }: Props) {
     }
 
     try {
-        // CORRECTED FETCH URL: /api/auctions/
         const response = await fetch(`/api/auctions/${auctionId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -160,22 +206,35 @@ export default function AuctionClient({ auctionId }: Props) {
         const data = await response.json();
 
         if (!response.ok) {
-            setMessage(data.error || "Failed to place bid. Please log in as a bidder.");
+            // FIX: Refresh client state on bid failure (409 Conflict or Bid Too Low)
+            if (response.status === 409 || response.status === 400) {
+                fetchAuctionDetails(); // <--- CRITICAL: Refetch the latest data!
+            }
+            setMessage(data.error || "Failed to place bid. Please log in to bid.");
             return;
         }
         
-        // Successful bid: Update local state to reflect new data
+        // --- START SUCCESSFUL BID UPDATE ---
+        const serverHighBid = data.auction?.currentHighBid; 
         const newBidderName = data.newBid?.userName || yourUser;
-        setCurrentBid(val);
-        setBidsTotal(prev => prev + 1);
-        setYourBidsCount(prev => prev + 1);
-        setYourTotalBid(val);
+        
+        setCurrentBid(serverHighBid);
+        setBidsTotal(data.auction?.bids);
         setTopBidder(newBidderName); 
-
-        pushFeed(`${newBidderName} bid ${formatINR(val)} ${newBidderName === yourUser ? '— you are the top bidder!' : ''}`, newBidderName);
-        pushPrice(val);
+        
+        // Update user-specific tracking
+        if (newBidderName === yourUser) {
+          setYourBidsCount(prev => prev + 1);
+          setYourTotalBid(serverHighBid);
+        }
+        
+        pushFeed(`${newBidderName} bid ${formatINR(serverHighBid)} ${newBidderName === yourUser ? '— you are the top bidder!' : ''}`, newBidderName);
+        // FIX: Corrected variable name from 'newHighBid' to 'serverHighBid'
+        pushPrice(serverHighBid); 
         updateImpact(val);
         setBidAmountInput('');
+        setMessage("🎉 Bid placed successfully! You are the top bidder.");
+        // --- END SUCCESSFUL BID UPDATE ---
 
     } catch (e) {
         setMessage("Network error. Could not place bid.");
@@ -187,53 +246,10 @@ export default function AuctionClient({ auctionId }: Props) {
 
   // 1. Initial Data Fetch 
   useEffect(() => {
-    async function fetchAuctionDetails() {
-      try {
-        setLoading(true);
-        // CORRECTED FETCH URL: /api/auctions/
-        const res = await fetch(`/api/auctions/${auctionId}`);
-        
-        if (!res.ok) {
-          // Attempt to parse JSON error message, fallback if it's HTML
-          try {
-            const errorData = await res.json();
-            throw new Error(errorData.error || `Server responded with status ${res.status}`);
-          } catch(e) {
-             throw new Error(`Unexpected token '<' when parsing JSON. Server returned HTML/non-JSON at status ${res.status}.`);
-          }
-        }
-        
-        const data: AuctionDetails = await res.json();
-        setAuction(data);
+    fetchAuctionDetails(); 
+  }, [fetchAuctionDetails]); 
 
-        // Map fetched data to UI state
-        const highBid = data.currentHighBid || data.startingBid || 0;
-        setCurrentBid(highBid);
-        setBidsTotal(data.bids);
-        
-        // Populate bid feed from history
-        const initialFeed = data.bidsHistory.map((bid, index) => ({
-            id: index,
-            text: `${bid.userName} bid ${formatINR(bid.amount)} ${index === 0 ? '(top bidder)' : ''}`,
-            bidder: bid.userName,
-            timestamp: bid.timestamp,
-        }));
-        setBidFeedItems(initialFeed);
-        setTopBidder(data.bidsHistory?.[0]?.userName || 'N/A');
-
-        // Initial mock impact calculation
-        setImpactRaised(highBid * 5 + 10000); 
-
-      } catch (err: any) {
-        setFetchError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchAuctionDetails();
-  }, [auctionId]); 
-
-  // 2. Chart Initialization and Update
+  // 2. Chart Initialization and Update (No changes needed here)
   useEffect(() => {
     if (chartCanvasRef.current && auction) {
         if (chartInstanceRef.current) {
@@ -243,12 +259,12 @@ export default function AuctionClient({ auctionId }: Props) {
         const ctx = chartCanvasRef.current.getContext('2d');
         if (!ctx) return;
 
-        const prices = auction.bidsHistory.map(b => b.amount).reverse();
-        const labels = prices.map((_, i) => `${prices.length - i}m`).reverse();
+        // Use only the last 12 bids for the chart initial state
+        const prices = auction.bidsHistory.map(b => b.amount);
+        const labels = prices.map((_, i) => `${i + 1}m`); 
         
-        // Ensure initial data points if history is empty
-        let initialPrices = prices.length > 0 ? prices.slice(-12) : [auction.startingBid || 0];
-        let initialLabels = prices.length > 0 ? labels.slice(-12) : ['Start'];
+        let initialPrices = prices.slice(-12);
+        let initialLabels = prices.slice(-12).map((_, i) => `${prices.length - initialPrices.length + i + 1}m`);
 
         chartInstanceRef.current = new Chart(ctx, {
             type: 'line',
@@ -279,8 +295,13 @@ export default function AuctionClient({ auctionId }: Props) {
     };
   }, [auction]);
   
-  // 3. Simulation Intervals
+  // 3. Simulation Intervals (FIXED LOGIC to pause on user input)
   const simulateOtherBid = useCallback(() => {
+    // FIX: Do not run simulation if the user is actively typing a bid
+    if (bidAmountInput.trim() !== '') { 
+      return;
+    }
+    
     if (!auction) return;
     if (Math.random() < 0.6) {
       const incrementOptions = [50, 50, 100, 50, 20, 100];
@@ -297,7 +318,7 @@ export default function AuctionClient({ auctionId }: Props) {
         updateImpact(inc);
       }
     }
-  }, [currentBid, pushFeed, pushPrice, updateImpact, otherNames, auction]);
+  }, [currentBid, pushFeed, pushPrice, updateImpact, otherNames, auction, bidAmountInput]); // <-- Added bidAmountInput dependency
   
   useEffect(() => {
     if (!auction) return; 
@@ -313,7 +334,7 @@ export default function AuctionClient({ auctionId }: Props) {
     };
   }, [simulateOtherBid, auction]);
   
-  // 4. Auto-Bid Logic (Unchanged)
+  // 4. Auto-Bid Logic (No changes needed here)
   useEffect(() => {
     if (!isAutoEnabled || topBidder === yourUser || !autoMaxInput || isNaN(Number(autoMaxInput))) return;
 
@@ -340,7 +361,7 @@ export default function AuctionClient({ auctionId }: Props) {
 
 
   // Derived UI State
-  const heatScore = (auction && auction.bids) ? Math.min(100, Math.max(20, Math.round(auction.bids * 2.5 + watchers * 0.1))) : 50; 
+  const heatScore = (auction && bidsTotal) ? Math.min(100, Math.max(20, Math.round(bidsTotal * 2.5 + watchers * 0.1))) : 50; 
   const isTopBidder = topBidder === yourUser;
   const bidDiff = currentBid - yourTotalBid;
 
@@ -354,7 +375,11 @@ export default function AuctionClient({ auctionId }: Props) {
     top: topBidder,
   };
 
-  // --- Loading and Error UI ---
+  // --- Calculate Minimum Bid for UI ---
+  const minBidForUI = currentBid + 50;
+
+
+  // --- Main Render (using auction data) ---
   if (loading) {
     return <div className="text-center py-20 text-xl font-semibold text-[#22163F]">Loading Auction Details...</div>;
   }
@@ -364,8 +389,7 @@ export default function AuctionClient({ auctionId }: Props) {
   if (!auction) {
     return <div className="text-center py-20 text-xl font-semibold text-gray-500">Auction not found.</div>;
   }
-
-
+  
   // --- Main Render (using auction data) ---
   return (
     <div className="pt-4 pb-12 w-full">
@@ -473,7 +497,8 @@ export default function AuctionClient({ auctionId }: Props) {
             {/* Live Feed Items */}
             <div className="feed max-h-[280px] overflow-y-auto flex flex-col gap-2 pr-2">
               {bidFeedItems.map((item, index) => (
-                <div key={item.id || index} className="bg-gray-50 p-3 rounded-lg text-sm border border-gray-200 flex justify-between items-center">
+                // FIX: Use item.id (which is timestamp + index) for the key
+                <div key={item.id} className="bg-gray-50 p-3 rounded-lg text-sm border border-gray-200 flex justify-between items-center">
                     <div className="font-medium flex items-center gap-2">
                         {item.bidder === yourUser ? <Hand size={16} className="text-green-500" /> : <Hand size={16} className="text-blue-500" />}
                         {item.text}
@@ -494,7 +519,8 @@ export default function AuctionClient({ auctionId }: Props) {
                 <input
                 id="bidAmount"
                 className="w-full p-3 rounded-xl border mt-3 text-base focus:ring-2 focus:ring-[#463985] focus:border-[#463985]"
-                placeholder={`Enter your bid (min ${formatINR(currentBid + 50)})`}
+                // IMPORTANT: Displaying the minimum bid required
+                placeholder={`Enter your bid (min ${formatINR(minBidForUI)})`} 
                 value={bidAmountInput}
                 onChange={(e) => setBidAmountInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && placeBid()}

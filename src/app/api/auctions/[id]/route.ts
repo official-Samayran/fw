@@ -1,6 +1,8 @@
 // src/app/api/auctions/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { MongoClient, ObjectId, Db } from "mongodb";
+import { getServerSession } from "next-auth/next"; // <-- ADDED
+import { authOptions } from "@/app/api/auth/[...nextauth]/route"; // <-- ADDED
 
 /**
  * Cached Mongo client for Next.js runtime to avoid connection explosion.
@@ -48,12 +50,6 @@ function normalizeDoc(doc: any) {
   return copy;
 }
 
-/**
- * NOTE: Next.js generated types for route handlers expect `context.params` to be a Promise
- * in this app / version. So we use `context: { params: Promise<{ id: string }> }`
- * and `await context.params` to satisfy the type checker.
- */
-
 /** GET /api/auctions/[id] */
 export async function GET(
   request: NextRequest,
@@ -78,11 +74,115 @@ export async function GET(
   }
 }
 
+// --- START NEW POST FUNCTION FOR PLACING A BID ---
+/** POST /api/auctions/[id] (Place Bid) */
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  const session = await getServerSession(authOptions);
+
+  if (!session || !session.user) {
+    return NextResponse.json({ error: "Not authenticated. Please log in to place a bid." }, { status: 401 });
+  }
+
+  try {
+    const { db } = await connectToDatabase();
+    const { id: auctionIdString } = await context.params;
+    const auctionOid = toObjectId(auctionIdString);
+    const userId = (session.user as { id: string, name: string }).id;
+    const userName = (session.user as { id: string, name: string }).name;
+
+    if (!auctionOid) {
+      return NextResponse.json({ error: "Invalid auction ID" }, { status: 400 });
+    }
+
+    const { bidAmount } = await request.json();
+
+    const newBidAmount = Number(bidAmount);
+    if (isNaN(newBidAmount) || newBidAmount <= 0) {
+        return NextResponse.json({ error: "Invalid bid amount provided." }, { status: 400 });
+    }
+
+    // 1. Find the current auction state
+    const auction = await db.collection("auctions").findOne({ _id: auctionOid });
+
+    if (!auction) {
+        return NextResponse.json({ error: "Auction not found" }, { status: 404 });
+    }
+
+    const minBid = (auction.currentHighBid || auction.startingBid || 0) + 50;
+
+    // 2. Validate the new bid
+    if (newBidAmount < minBid) {
+        return NextResponse.json(
+            { error: `Bid must be at least ₹${minBid.toLocaleString('en-IN')}` },
+            { status: 400 }
+        );
+    }
+    
+    // 3. Prepare the update document
+    const bidHistoryEntry = {
+        userId: userId,
+        userName: userName,
+        amount: newBidAmount,
+        timestamp: new Date().toISOString(),
+    };
+
+    const updateDoc = {
+        $set: {
+            currentHighBid: newBidAmount,
+            topBidderId: new ObjectId(userId),
+            bid: `₹${newBidAmount.toLocaleString('en-IN')}` // For the list view
+        },
+        $push: { bidsHistory: bidHistoryEntry },
+        $inc: { bids: 1 },
+    };
+
+    // 4. Perform the update
+    const result = await db
+      .collection("auctions")
+      .findOneAndUpdate(
+        { 
+            _id: auctionOid,
+            // Ensure we only update if no one has outbid us since we fetched the price (optimistic locking)
+            currentHighBid: { $lt: newBidAmount }
+        }, 
+        updateDoc as any, 
+        { 
+            returnDocument: "after"
+        }
+      );
+
+    if (!result || !result.value) {
+      // This means the bid was too low or someone bid first
+      return NextResponse.json({ error: "Bid was too low or outdated. Please try a higher amount." }, { status: 409 });
+    }
+    
+    const updated = result.value;
+
+    return NextResponse.json(
+        { 
+            message: "Bid placed successfully",
+            newBid: bidHistoryEntry,
+            auction: normalizeDoc(updated),
+        }, 
+        { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("POST /api/auctions/[id] (Place Bid) error:", err);
+    return NextResponse.json({ error: err?.message || "Server error during bid process" }, { status: 500 });
+  }
+}
+// --- END NEW POST FUNCTION ---
+
+
 /** PUT /api/auctions/[id] */
 export async function PUT(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  // ... (PUT logic remains the same)
   try {
     const { db } = await connectToDatabase();
     const { id } = await context.params;
@@ -105,11 +205,11 @@ export async function PUT(
       .findOneAndUpdate({ _id: oid }, { $set: updates }, { returnDocument: "after" });
 
     if (!result || !result.value) {
-  return NextResponse.json({ error: "Auction not found" }, { status: 404 });
-}
+      return NextResponse.json({ error: "Auction not found" }, { status: 404 });
+    }
 
-const updated = result.value; // now TS knows it's present
-return NextResponse.json(normalizeDoc(updated), { status: 200 });
+    const updated = result.value; 
+    return NextResponse.json(normalizeDoc(updated), { status: 200 });
 
   } catch (err: any) {
     console.error("PUT /api/auctions/[id] error:", err);
@@ -122,6 +222,7 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  // ... (DELETE logic remains the same)
   try {
     const { db } = await connectToDatabase();
     const { id } = await context.params;

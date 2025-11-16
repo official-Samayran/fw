@@ -5,7 +5,10 @@ import bcrypt from "bcrypt";
 
 export async function POST(request: Request) {
   try {
-    const { fullName, email, password, role } = await request.json();
+    // --- CRITICAL CHANGE: Manually read and parse JSON body ---
+    const rawBody = await request.text();
+    const { fullName, email, password, role, profilePicture } = JSON.parse(rawBody);
+    // --------------------------------------------------------
 
     if (!fullName || !email || !password || !role) {
       return NextResponse.json(
@@ -32,6 +35,7 @@ export async function POST(request: Request) {
       email: email,
       password: hashedPassword,
       role: role, // 'bidder', 'celebrity', 'ngo'
+      profilePicture: profilePicture || null, 
       createdAt: new Date(),
     });
 
@@ -41,8 +45,11 @@ export async function POST(request: Request) {
     );
   } catch (e) {
     console.error(e);
+    // Log the actual error to your terminal
+    console.error("Manual Body Parsing or MongoDB Insert Failed:", e); 
+    
     return NextResponse.json(
-      { error: "Failed to create user" },
+      { error: "Failed to create user (Check console for API error)" },
       { status: 500 }
     );
   }

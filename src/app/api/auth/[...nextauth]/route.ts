@@ -1,5 +1,5 @@
 // src/app/api/auth/[...nextauth]/route.ts
-import NextAuth, { AuthOptions, SessionStrategy } from "next-auth"; // <-- 1. IMPORTED AuthOptions & SessionStrategy
+import NextAuth, { AuthOptions, SessionStrategy } from "next-auth"; 
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import clientPromise from "@/lib/mongodb";
 import CredentialsProvider from "next-auth/providers/credentials";
@@ -13,7 +13,7 @@ async function getDb() {
   return client.db(process.env.MONGODB_DB);
 }
 
-export const authOptions: AuthOptions = { // <-- 2. ADDED :AuthOptions
+export const authOptions: AuthOptions = { 
   adapter: MongoDBAdapter(clientPromise, {
     databaseName: process.env.MONGODB_DB,
   }) as Adapter,
@@ -46,29 +46,30 @@ export const authOptions: AuthOptions = { // <-- 2. ADDED :AuthOptions
           throw new Error("Invalid password.");
         }
 
-        // Return user object without the password
+        // CRITICAL FIX: DO NOT return the large profilePicture field here.
         return {
           id: user._id.toString(),
           name: user.name,
           email: user.email,
-          role: user.role, // We'll use this later
+          role: user.role, 
         };
       },
     }),
   ],
   session: {
-    strategy: "jwt" as SessionStrategy, // <-- 3. ADDED 'as SessionStrategy'
+    strategy: "jwt" as SessionStrategy, 
   },
   secret: process.env.NEXTAUTH_SECRET,
   pages: {
-    signIn: "/", // We use our modal, so just redirect to home
+    signIn: "/", 
   },
-  // Add callbacks to include user.id and user.role in the session token
+  // CRITICAL FIX: Do NOT include the large data in the JWT or session object.
   callbacks: {
     async jwt({ token, user }: any) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        // The token is now kept small and fits in the cookie.
       }
       return token;
     },
@@ -76,6 +77,7 @@ export const authOptions: AuthOptions = { // <-- 2. ADDED :AuthOptions
       if (session.user) {
         session.user.id = token.id;
         session.user.role = token.role;
+        // The session only contains basic, small data.
       }
       return session;
     },
