@@ -63,3 +63,31 @@ export async function POST(request: Request) {
     );
   }
 }
+export async function GET() {
+  try {
+    const client = await clientPromise;
+    const db = client.db(process.env.MONGODB_DB);
+
+    const auctions = await db
+      .collection("auctions")
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    return NextResponse.json(
+      auctions.map((auction) => ({
+        _id: auction._id.toString(),
+        title: auction.title,
+        bid: auction.bid,
+        bids: auction.bids,
+      })),
+      { status: 200 }
+    );
+  } catch (e) {
+    console.error("Error fetching auctions:", e);
+    return NextResponse.json(
+      { error: "Failed to fetch auctions" },
+      { status: 500 }
+    );
+  }
+}
