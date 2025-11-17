@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   // which is better for file uploads (like our large Base64 string).
   reactStrictMode: true,
   experimental: {
-    serverActions: true,
+    serverActions: {},
   },
 
   turbopack: {
