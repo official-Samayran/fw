@@ -1,10 +1,10 @@
-// src/components/ProfileDropdown.tsx
+// src/components/ProfileDropdown.tsx (MODIFIED)
 "use client";
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { LogOut, User, ChevronDown } from "lucide-react";
+import { LogOut, User, ChevronDown, LayoutDashboard } from "lucide-react"; // <--- ADDED LayoutDashboard icon
 import UserAvatar from "./UserAvatar"; 
 
 interface Props {
@@ -49,9 +49,12 @@ export default function ProfileDropdown({ userName, userRole }: Props) {
     signOut();
   };
 
+  // --- MODIFIED: Added Dashboard link conditionally ---
   const menuItems = [
     { label: "My Profile", href: "/profile/me", icon: User },
+    ...(userRole === 'celebrity' ? [{ label: "My Dashboard", href: "/dashboard/auctions", icon: LayoutDashboard }] : [])
   ];
+  // --- END MODIFIED ---
 
 
   return (
