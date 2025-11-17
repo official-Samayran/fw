@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react"; // 1. Import useSession
+import { useSession } from "next-auth/react"; 
 import {
   Chart,
   LineController,
@@ -51,9 +51,19 @@ interface AuctionDetails {
     topBidderId?: string;
     endDate: string;
     bidsHistory: BidHistoryItem[];
-    titleImage?: string | null; // <--- ADDED: Image for display
-    // isWishlisted: boolean; // This was a placeholder, we'll manage it with state
+    titleImage?: string | null; 
 }
+
+// --- NEW: Comment Interface ---
+interface Comment {
+  _id: string;
+  auctionId: string;
+  userId: string;
+  userName: string;
+  text: string;
+  createdAt: string;
+}
+// ----------------------------
 
 interface Props {
     auctionId: string;
@@ -61,7 +71,7 @@ interface Props {
 
 // --- Main Client Component ---
 export default function AuctionClient({ auctionId }: Props) {
-  const { data: session } = useSession(); // 2. Get user session
+  const { data: session } = useSession(); 
 
   // State for Fetched Data and Loading
   const [auction, setAuction] = useState<AuctionDetails | null>(null);
@@ -82,26 +92,32 @@ export default function AuctionClient({ auctionId }: Props) {
   const [commentInput, setCommentInput] = useState('');
   const [isAutoEnabled, setIsAutoEnabled] = useState(false);
   const [message, setMessage] = useState('');
-  
-  // 3. Add state for wishlist
   const [isWishlisted, setIsWishlisted] = useState(false);
-  
-  // CRITICAL FIX: Cooldown state
   const [cooldown, setCooldown] = useState(0); 
-
-  // (rest of state definitions are unchanged)
   const [bidFeedItems, setBidFeedItems] = useState<any[]>([]); 
-  const [comments, setComments] = useState([
-    { id: 1, name: 'Riya', time: '5m ago', text: "This artwork looks beautiful! Can't wait to see who wins." },
-  ]);
+
+  // --- MODIFIED: Comments state uses the new interface ---
+  const [comments, setComments] = useState<Comment[]>([]); 
+  // ----------------------------------------------------
 
   const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstanceRef = useRef<Chart | null>(null);
-  const yourUser = 'You';
-  const otherNames = ['Riya', 'Aarav', 'Gagan', 'Neha', 'Priyanshu', 'Kabir', 'Rohit'];
+  const yourUser = session?.user?.name || 'You'; // Use real session name or fallback
 
   // --- Helpers (unchanged) ---
   const formatINR = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+  
+  // Helper to format comment timestamp
+  const formatTimeAgo = (isoString: string): string => {
+    const now = new Date();
+    const past = new Date(isoString);
+    const diffSeconds = Math.floor((now.getTime() - past.getTime()) / 1000);
+
+    if (diffSeconds < 60) return "just now";
+    if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
+    if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
+    return `${Math.floor(diffSeconds / 86400)}d ago`;
+  };
 
   const pushFeed = useCallback((text: string, bidder: string = 'System') => {
     setBidFeedItems(prev => {
@@ -134,17 +150,67 @@ export default function AuctionClient({ auctionId }: Props) {
     setBidAmountInput(String(currentBid + amount)); 
   };
   
-  const postComment = () => {
+  // --- MODIFIED: Post Comment now calls the API ---
+  const postComment = async () => {
     const txt = commentInput.trim();
     if (!txt) return;
-    setComments(prev => [
-      { id: Date.now(), name: yourUser, time: 'just now', text: txt },
-      ...prev,
-    ]);
-    setCommentInput('');
+    
+    if (!session) {
+      setMessage("You must be logged in to post a comment.");
+      return;
+    }
+
+    setCommentInput(''); // Clear input immediately
+    
+    try {
+        const response = await fetch(`/api/auctions/${auctionId}/comments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: txt }),
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || "Failed to post comment.");
+        }
+        
+        // Optimistically add the new comment (using local time for createdAt)
+                const uid = ((session?.user) as any)?.id ?? session?.user?.email ?? '';
+                const uname = session.user?.name ?? yourUser;
+                setComments(prev => [{
+                    _id: Date.now().toString(),
+                    auctionId: auctionId,
+                    userId: uid,
+                    userName: uname,
+                    text: txt,
+                    createdAt: new Date().toISOString(),
+                }, ...prev]);
+        
+    } catch (e: any) {
+        setMessage(e.message);
+        // If it fails, restore the input box or log an error
+        setCommentInput(txt);
+    }
   };
+  // ----------------------------------------------
   
-  // --- 4. Update fetchAuctionDetails ---
+  // --- NEW: Fetch Comments Function ---
+  const fetchComments = useCallback(async () => {
+    try {
+        const res = await fetch(`/api/auctions/${auctionId}/comments`);
+        if (res.ok) {
+            const data: Comment[] = await res.json();
+            setComments(data);
+        } else {
+            console.error("Failed to fetch comments.");
+        }
+    } catch (e) {
+        console.error("Network error fetching comments:", e);
+    }
+  }, [auctionId]);
+  // ----------------------------------
+
+  // --- Update fetchAuctionDetails to use fetchComments ---
   const fetchAuctionDetails = useCallback(async () => {
     try {
       setLoading(true);
@@ -152,7 +218,6 @@ export default function AuctionClient({ auctionId }: Props) {
       const res = await fetch(`/api/auctions/${auctionId}`);
       
       if (!res.ok) {
-        // (error handling unchanged)
         try {
           const errorData = await res.json();
           throw new Error(errorData.error || `Server responded with status ${res.status}`);
@@ -164,7 +229,6 @@ export default function AuctionClient({ auctionId }: Props) {
       const data: AuctionDetails = await res.json();
       setAuction(data);
 
-      // (rest of state mapping unchanged)
       const highBid = data.currentHighBid || data.startingBid || 0;
       setCurrentBid(highBid);
       setBidsTotal(data.bids);
@@ -178,7 +242,10 @@ export default function AuctionClient({ auctionId }: Props) {
       setTopBidder(data.bidsHistory?.[data.bidsHistory.length - 1]?.userName || 'N/A'); 
       setImpactRaised(highBid * 5 + 10000); 
 
-      // 5. AFTER fetching auction, fetch wishlist if logged in
+      // Fetch comments right after auction data
+      fetchComments();
+
+      // AFTER fetching auction, fetch wishlist if logged in
       if (session) {
         const wishlistRes = await fetch("/api/wishlist");
         if (wishlistRes.ok) {
@@ -194,7 +261,7 @@ export default function AuctionClient({ auctionId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [auctionId, session]); // 6. Add session as a dependency
+  }, [auctionId, session, fetchComments]); 
 
   // --- API Logic Handler: Place Bid (unchanged) ---
   const placeBid = async () => {
@@ -244,7 +311,7 @@ export default function AuctionClient({ auctionId }: Props) {
     }
   };
 
-  // 7. Add Wishlist Toggle Handler
+  // --- Wishlist Toggle Handler (unchanged) ---
   const handleWishlistToggle = useCallback(async () => {
     if (!session) {
       alert("Please log in to add items to your wishlist.");
@@ -271,13 +338,21 @@ export default function AuctionClient({ auctionId }: Props) {
 
   // --- Effects ---
 
-  // 1. Initial Data Fetch (dependency list updated)
+  // 1. Initial Data Fetch
   useEffect(() => {
     fetchAuctionDetails(); 
   }, [fetchAuctionDetails]); 
+  
+  // 2. NEW: Comments Polling Effect (simulates real-time)
+  useEffect(() => {
+    // Only poll if we have successfully fetched the initial data
+    if (auction && !fetchError) {
+      const id = setInterval(fetchComments, 10000); // Poll every 10 seconds
+      return () => clearInterval(id);
+    }
+  }, [auction, fetchError, fetchComments]); 
 
-  // (Rest of useEffects are unchanged)
-  // 2. Chart Initialization and Update
+  // 3. Chart Initialization and Update
   useEffect(() => {
     if (chartCanvasRef.current && auction) {
         if (chartInstanceRef.current) {
@@ -316,7 +391,7 @@ export default function AuctionClient({ auctionId }: Props) {
     };
   }, [auction]);
   
-  // 3. Simulation Intervals
+  // 4. Simulation Intervals
   useEffect(() => {
     if (!auction) return; 
     const watcherInterval = setInterval(() => {
@@ -327,7 +402,7 @@ export default function AuctionClient({ auctionId }: Props) {
     };
   }, [auction]);
   
-  // 4. Cooldown Timer for UI
+  // 5. Cooldown Timer for UI
   useEffect(() => {
     if (cooldown > 0) {
       const timer = setTimeout(() => {
@@ -337,7 +412,7 @@ export default function AuctionClient({ auctionId }: Props) {
     }
   }, [cooldown]);
 
-  // 5. Auto-Bid Logic
+  // 6. Auto-Bid Logic
   useEffect(() => {
     if (!isAutoEnabled || topBidder === yourUser || !autoMaxInput || isNaN(Number(autoMaxInput))) return;
     const maxBid = parseInt(autoMaxInput, 10);
@@ -455,33 +530,45 @@ export default function AuctionClient({ auctionId }: Props) {
             </div>
             <div className="mt-4 rounded-xl p-4 border shadow-md bg-gray-50">
               <div className="comment-list max-h-72 overflow-y-auto flex flex-col gap-3 pr-2">
-                {comments.map(c => (
-                  <div key={c.id} className="flex gap-3 p-3 rounded-lg bg-white border border-gray-100">
-                    <div className="w-10 h-10 rounded-full flex-shrink-0" style={{ background: 'linear-gradient(#ddd,#bbb)' }} />
-                    <div className="flex-1">
-                      <div className="text-sm font-bold" style={{ color: 'var(--accent)' }}>{c.name}<span className="text-xs text-gray-400 ml-2 font-normal">{c.time}</span></div>
-                      <div className="mt-1 text-sm text-gray-700">{c.text}</div>
+                {/* --- MODIFIED: Use real comment data --- */}
+                {comments.length === 0 ? (
+                  <p className="text-sm text-gray-500 p-3">No comments yet. Be the first!</p>
+                ) : (
+                  comments.map(c => (
+                    <div key={c._id} className="flex gap-3 p-3 rounded-lg bg-white border border-gray-100">
+                      <div className="w-10 h-10 rounded-full flex-shrink-0" style={{ background: c.userId === yourUser ? 'linear-gradient(135deg, #22163F, #463985)' : 'linear-gradient(#ddd,#bbb)' }} />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold" style={{ color: 'var(--accent)' }}>
+                          {c.userName}
+                          <span className="text-xs text-gray-400 ml-2 font-normal">{formatTimeAgo(c.createdAt)}</span>
+                        </div>
+                        <div className="mt-1 text-sm text-gray-700">{c.text}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
+                {/* -------------------------------------- */}
               </div>
               <div className="w-full mt-4">
                 <textarea
-                  className="w-full p-3 rounded-lg border text-sm focus:ring focus:ring-[#463985] focus:border-[#463985] min-h-[70px]"
+                  className="w-full p-3 rounded-lg border text-sm focus:ring focus:ring-[#463985] focus:border-[#463985] min-h-[70px] disabled:bg-gray-100"
                   style={{ borderColor: '#e2e2e2' }}
                   rows={2}
-                  placeholder="Write a comment..."
+                  placeholder={session ? "Write a comment..." : "Log in to post a comment..."}
                   value={commentInput}
                   onChange={(e) => setCommentInput(e.target.value)}
+                  disabled={!session}
                 />
                 <button
-                  className="w-full py-3 rounded-xl text-white font-extrabold transition hover:opacity-90 mt-2 disabled:bg-gray-400"
-                  style={{ background: 'var(--accent)' }}
+                  // --- START FIX: Set explicit dark background color ---
+                  className="w-full py-3 rounded-xl bg-[#22163F] text-white font-extrabold transition hover:bg-[#463985] mt-2 disabled:bg-gray-400 disabled:text-gray-600"
+                  // --- END FIX ---
                   onClick={postComment}
-                  disabled={!commentInput.trim()}
+                  disabled={!commentInput.trim() || !session}
                 >
                   <MessageCircle size={20} className="inline-block mr-2" /> Post Comment
                 </button>
+                {!session && <p className="text-xs text-center text-red-500 mt-2">You must be logged in to comment.</p>}
               </div>
             </div>
           </div>
