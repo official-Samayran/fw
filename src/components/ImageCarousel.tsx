@@ -24,7 +24,7 @@ export default function ImageCarousel({ mediaUrls }: Props) {
   };
 
   const prevSlide = () => {
-    // FIX: Moves backward, wraps to the last slide (totalSlides - 1)
+    // Moves backward, wraps to the last slide (totalSlides - 1)
     setActiveIndex((prev) => (prev === 0 ? totalSlides - 1 : prev - 1));
   };
 
@@ -52,7 +52,8 @@ export default function ImageCarousel({ mediaUrls }: Props) {
         <>
           <button
             onClick={prevSlide}
-            className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-black/40 text-white rounded-full hover:bg-black/60 transition z-10"
+            // --- FIX: Use bg-white/40 (was bg-white) for a translucent look ---
+            className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-white/40 text-[#22163F] rounded-full hover:bg-white/70 transition z-10"
             aria-label="Previous image"
           >
             <ChevronLeft size={24} />
@@ -60,13 +61,14 @@ export default function ImageCarousel({ mediaUrls }: Props) {
 
           <button
             onClick={nextSlide}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-black/40 text-white rounded-full hover:bg-black/60 transition z-10"
+            // --- FIX: Use bg-white/40 (was bg-white) for a translucent look ---
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-white/40 text-[#22163F] rounded-full hover:bg-white/70 transition z-10"
             aria-label="Next image"
           >
             <ChevronRight size={24} />
           </button>
 
-          {/* Indicators/Dots */}
+          {/* Indicators/Dots (unchanged) */}
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex space-x-2">
             {mediaUrls.map((_, index) => (
               <button

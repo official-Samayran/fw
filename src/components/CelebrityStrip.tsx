@@ -1,3 +1,4 @@
+// src/components/CelebrityStrip.tsx
 "use client";
 
 import { Celeb } from "@/types";
@@ -23,7 +24,15 @@ export default function CelebrityStrip({ celebs, selected, onSelect }: Props) {
               : "border-gray-200 hover:shadow-md hover:-translate-y-1"
           )}
         >
-          <div className="h-16 w-16 bg-gradient-to-b from-gray-200 to-gray-300 rounded-full" />
+          {/* --- MODIFIED: Use profilePicture --- */}
+          <div className="h-16 w-16 rounded-full overflow-hidden flex items-center justify-center bg-gradient-to-b from-gray-200 to-gray-300">
+            {c.profilePicture ? (
+              <img src={c.profilePicture} alt={c.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-xl font-bold text-gray-500">{c.name.charAt(0)}</span>
+            )}
+          </div>
+          {/* ------------------------------------ */}
           <div className="font-semibold text-sm text-[#22163F]">{c.name}</div>
           <div className="text-xs text-gray-500">
             {c.followers.toLocaleString()} followers

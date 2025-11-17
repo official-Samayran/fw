@@ -2,8 +2,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react"; // Correct import
 import { Celeb } from "@/types";
-import { generateFans, Fan } from "@/lib/generateFans";
+import { Fan } from "@/lib/generateFans";
 import StickyRank from "./StickyRank";
 import TopThree from "./TopThree";
 import FanList from "./FanList";
@@ -16,48 +17,55 @@ interface Props {
 }
 
 export default function LeaderboardMain({ selectedCeleb, timeframe, mode }: Props) {
+  // --- FIX: Destructure data (as session) AND status from useSession ---
+  const { data: session, status } = useSession(); 
+  // ---------------------------------------------------------------------
+
   const [fans, setFans] = useState<Fan[]>([]);
   const [page, setPage] = useState(1);
   const [you, setYou] = useState<Fan | null>(null);
-  const [loading, setLoading] = useState(true); // 1. Add loading state
+  const [loading, setLoading] = useState(true);
 
   const pageSize = 10;
+  
+  // Use real user data or safe fallbacks for UI
+  const userId = (session?.user as { id: string })?.id || "guest"; // Real ID if authenticated
+  const userName = session?.user?.name || "You";
 
   useEffect(() => {
-    // 2. Create an async function inside useEffect to fetch data
     const fetchLeaderboard = async () => {
       setLoading(true);
       setPage(1); // Reset pagination
+      let endpoint = '';
+      
+      if (mode === "global") {
+        endpoint = `/api/leaderboard/global?timeframe=${timeframe}`;
+      } else {
+        endpoint = `/api/leaderboard/celeb?celebId=${selectedCeleb.id}&timeframe=${timeframe}`;
+      }
+
       let generatedFans: Fan[] = [];
 
-      if (mode === "global") {
-        // 3. --- REAL DATA ---
-        // Fetch from our new API route
-        try {
-          const res = await fetch(`/api/leaderboard/global?timeframe=${timeframe}`);
+      try {
+          const res = await fetch(endpoint);
           if (!res.ok) {
-            throw new Error("Failed to fetch leaderboard");
+            throw new Error(`Failed to fetch ${mode} leaderboard`);
           }
           const data: Fan[] = await res.json();
           generatedFans = data;
-        } catch (err) {
-          console.error(err);
-          generatedFans = []; // Set empty on error
-        }
-      } else {
-        // 4. --- MOCK DATA (unchanged) ---
-        // Fallback to mock data for celeb-specific leaderboard for now
-        generatedFans = generateFans(selectedCeleb, timeframe, 100);
+      } catch (err) {
+        console.error(err);
+        generatedFans = [];
       }
 
       setFans(generatedFans);
 
-      // 5. Update mock "You" user
-      // (This is still mock, but we can make it real later)
+      const topPoints = generatedFans[0]?.points || 500;
       setYou({ 
-        id: "you", 
-        name: "You", 
-        points: Math.round((generatedFans[0]?.points || 500) / 4), 
+        id: userId,
+        name: userName,
+        // Use status here: only give points if authenticated
+        points: status === 'authenticated' ? Math.round(topPoints / 4) : 0, 
         bids: 0, 
         wishes: 0 
       });
@@ -67,16 +75,22 @@ export default function LeaderboardMain({ selectedCeleb, timeframe, mode }: Prop
 
     fetchLeaderboard();
     
-  }, [selectedCeleb, timeframe, mode]);
+    // --- FIX: Use 'status' directly in the dependency array ---
+  }, [selectedCeleb, timeframe, mode, status, userId, userName]); 
+    // ----------------------------------------------------------
 
-  // (This logic is unchanged)
-  const combined = you ? [you, ...fans] : fans;
+  const filteredFans = fans.filter(f => f.id !== userId);
+  const combined = session && you ? [you, ...filteredFans] : filteredFans; 
   combined.sort((a, b) => b.points - a.points);
 
-  const rank = combined.findIndex((f) => f.id === "you") + 1;
+  const rank = session ? (combined.findIndex((f) => f.id === userId) + 1) : null; 
   const paginatedFans = combined.slice(0, page * pageSize);
 
   const onChallenge = (fan: Fan) => {
+    if (status !== 'authenticated') { // Check status for authentication
+        showToast("You must be logged in to challenge other fans.");
+        return;
+    }
     const gain = Math.round(50 + Math.random() * 350);
     const updatedYou = { ...you!, points: you!.points + gain, bids: you!.bids + 1 };
 
@@ -86,7 +100,8 @@ export default function LeaderboardMain({ selectedCeleb, timeframe, mode }: Prop
 
   return (
     <div>
-      <StickyRank rank={rank} celebName={selectedCeleb.name} points={you?.points || 0} />
+      {/* Sticky Rank is only shown if authenticated */}
+      {status === 'authenticated' && <StickyRank rank={rank || null} celebName={selectedCeleb.name} points={you?.points || 0} />}
 
       <div className="p-6 rounded-xl bg-white border shadow mb-4 flex justify-between mt-4">
         <div>
@@ -107,13 +122,12 @@ export default function LeaderboardMain({ selectedCeleb, timeframe, mode }: Prop
         </div>
       </div>
 
-      {/* 6. Add loading state handler */}
       {loading ? (
         <div className="text-center p-10 font-semibold">Loading Leaderboard...</div>
       ) : (
         <>
           <TopThree fans={combined.slice(0, 3)} />
-          <FanList fans={paginatedFans} onChallenge={onChallenge} yourId="you" />
+          <FanList fans={paginatedFans} onChallenge={onChallenge} yourId={userId} /> 
 
           {paginatedFans.length < combined.length && (
             <button
@@ -135,6 +149,3 @@ const labelMap = {
   year: "This Year",
   all: "All Time",
 };
-
-// We don't need this mock celeb list anymore, it's handled by the page.
-// const celebsList = [ ... ];

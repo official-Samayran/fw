@@ -1,7 +1,7 @@
 // src/app/dashboard/auctions/[id]/manage/ManageAuctionForm.tsx
 "use client";
 
-import React, { useState, FormEvent } from "react";
+import React, { useState, FormEvent, useEffect } from "react"; // <--- Added useEffect
 import { Settings, FileText, Clock, Send } from "lucide-react";
 
 interface AuctionDetails {
@@ -14,17 +14,37 @@ interface AuctionDetails {
   titleImage?: string | null;
 }
 
+// Helper to format ISO date string to YYYY-MM-DDTHH:MM format for <input type="datetime-local">
+const toDatetimeLocal = (isoString: string): string => {
+  if (!isoString) return "";
+  const date = new Date(isoString);
+  // date.toISOString().substring(0, 16) gets 'YYYY-MM-DDTHH:MM'
+  return date.toISOString().substring(0, 16);
+};
+
+
 const ManageAuctionForm: React.FC<{ initialData: AuctionDetails }> = ({ initialData }) => {
   const [formData, setFormData] = useState({
     title: initialData.title,
     description: initialData.description,
-    endDate: initialData.endDate.substring(0, 16),
+    // --- FIX: Use the helper to correctly format the ISO string for input ---
+    endDate: toDatetimeLocal(initialData.endDate),
+    // -----------------------------------------------------------------------
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
-  const isLive = new Date(initialData.endDate) > new Date();
+  // If initialData changes (e.g., component re-rendered with new data, which is unlikely but safe), update form state
+  useEffect(() => {
+    setFormData({
+      title: initialData.title,
+      description: initialData.description,
+      endDate: toDatetimeLocal(initialData.endDate),
+    });
+  }, [initialData]);
+  
+  const isLive = new Date(formData.endDate) > new Date(); // Use formData's end date
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -39,7 +59,8 @@ const ManageAuctionForm: React.FC<{ initialData: AuctionDetails }> = ({ initialD
     const updates = {
       title: formData.title,
       description: formData.description,
-      endDate: new Date(formData.endDate).toISOString(),
+      // Convert the local datetime string back to an ISO string for the API
+      endDate: new Date(formData.endDate).toISOString(), 
     };
 
     try {

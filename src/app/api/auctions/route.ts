@@ -16,16 +16,21 @@ interface AuctionDocument extends Document {
     startingBid: number;
     endDate: string;
     category: string;
-    description: string;
+    description: string; // detailed description
+    shortDescription: string; // <--- ADDED
+    bidIncrement: number; // <--- ADDED
+    reservePrice: number | null; // <--- ADDED
+    buyNowPrice: number | null; // <--- ADDED
+    startDate: string; // <--- ADDED
     createdBy: ObjectId;
     bidsHistory: any[]; 
     createdAt: Date;
-    titleImage: string | null; // <-- ADDED: Auction image URL/Base64
+    titleImage: string | null;
 }
 
 /**
  * GET: Fetch a list of all auctions for the main auction page.
- * NOW UPDATED to handle search queries AND createdBy user ID filter.
+ * (Unchanged logic)
  */
 export async function GET(request: NextRequest) { 
   try {
@@ -34,12 +39,10 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const searchQuery = searchParams.get("search");
-    const createdBy = searchParams.get("createdBy"); // <--- ADDED: Get createdBy filter
+    const createdBy = searchParams.get("createdBy");
 
-    // 4. Build the MongoDB query
     const query: Document = {};
     
-    // --- START: Filtering Logic ---
     if (searchQuery) {
       query.$or = [
         { title: { $regex: searchQuery, $options: "i" } }, 
@@ -48,17 +51,14 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    if (createdBy) { // <--- ADDED: Filter by createdBy if provided
+    if (createdBy) {
         try {
             query.createdBy = new ObjectId(createdBy);
         } catch (e) {
-            // In a real app, this should log an error, but here we return a 400
             return NextResponse.json({ error: "Invalid createdBy user ID" }, { status: 400 });
         }
     }
-    // --- END: Filtering Logic ---
 
-    // 5. Use the query in the .find() method
     const auctions = await db
       .collection("auctions")
       .find(query) 
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
         currentHighBid: 1,
         endDate: 1,
         titleImage: 1, 
-        createdAt: 1, // <--- ADDED: Include creation date to determine status
+        createdAt: 1,
       })
       .sort({ createdAt: -1 })
       .toArray();
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST: Create a new auction.
- * (Logic remains unchanged)
+ * (Logic MODIFIED to accept and save new fields)
  */
 export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
@@ -103,16 +103,44 @@ export async function POST(request: Request) {
     }
 
     try {
-        const { title, startingBid, category, description, endDate, titleImage } = await request.json(); // <--- MODIFIED: Destructure titleImage
+        const { 
+            title, 
+            startingPrice,
+            bidIncrement, // <--- NEW FIELD
+            reservePrice, // <--- NEW FIELD
+            buyNowPrice,  // <--- NEW FIELD
+            startDate,    // <--- NEW FIELD
+            category, 
+            shortDescription, // <--- NEW FIELD
+            detailedDescription,
+            endDate, 
+            titleImage 
+        } = await request.json();
 
-        if (!title || !startingBid || !endDate) {
-            return NextResponse.json({ error: "Missing required fields: title, starting bid, or end date." }, { status: 400 });
+        // Renaming to match internal interface
+        const startingBid = startingPrice; 
+        const description = detailedDescription;
+
+        // --- VALIDATION ---
+        if (!title || !startingBid || !endDate || !bidIncrement || !description || !shortDescription || !startDate) {
+            return NextResponse.json({ error: "Missing required fields: title, startingPrice, bidIncrement, endDate, shortDescription, or detailedDescription/description." }, { status: 400 });
         }
         
-        const numericBid = Number(startingBid);
-        if (isNaN(numericBid) || numericBid <= 0) {
-            return NextResponse.json({ error: "Starting bid must be a positive number." }, { status: 400 });
+        const numericStartingBid = Number(startingBid);
+        const numericBidIncrement = Number(bidIncrement);
+        const numericReservePrice = reservePrice ? Number(reservePrice) : null;
+        const numericBuyNowPrice = buyNowPrice ? Number(buyNowPrice) : null;
+        
+        if (isNaN(numericStartingBid) || numericStartingBid <= 0 || isNaN(numericBidIncrement) || numericBidIncrement <= 0) {
+            return NextResponse.json({ error: "Starting Price and Bid Increment must be positive numbers." }, { status: 400 });
         }
+        if (numericReservePrice !== null && isNaN(numericReservePrice)) {
+            return NextResponse.json({ error: "Invalid Reserve Price." }, { status: 400 });
+        }
+        if (numericBuyNowPrice !== null && isNaN(numericBuyNowPrice)) {
+            return NextResponse.json({ error: "Invalid Buy Now Price." }, { status: 400 });
+        }
+        // ------------------
         
         const client = await clientPromise;
         const db = client.db(process.env.MONGODB_DB);
@@ -121,17 +149,26 @@ export async function POST(request: Request) {
         const newAuction: AuctionDocument = {
             _id: new ObjectId(),
             title,
-            startingBid: numericBid,
-            currentHighBid: numericBid, 
-            bid: `₹${numericBid.toLocaleString('en-IN')}`, 
+            // Core Pricing
+            startingBid: numericStartingBid,
+            currentHighBid: numericStartingBid, 
+            bid: `₹${numericStartingBid.toLocaleString('en-IN')}`, 
+            bidIncrement: numericBidIncrement, // <--- ADDED
+            reservePrice: numericReservePrice, // <--- ADDED
+            buyNowPrice: numericBuyNowPrice, // <--- ADDED
+            // Content
             category: category || "Other",
-            description: description || "",
+            description: description, // detailed description
+            shortDescription: shortDescription, // <--- ADDED
+            titleImage: titleImage || null,
+            // Timing
+            startDate: new Date(startDate).toISOString(), // <--- ADDED
             endDate: new Date(endDate).toISOString(),
+            // Metadata
             createdBy: userId,
             bids: 0,
             bidsHistory: [],
             createdAt: new Date(),
-            titleImage: titleImage || null, // <--- ADDED: Store the image data (Base64)
         };
 
         const result = await db.collection("auctions").insertOne(newAuction);

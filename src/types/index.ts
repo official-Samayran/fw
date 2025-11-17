@@ -4,6 +4,7 @@ export interface Celeb {
   name: string;
   desc: string;
   followers: number;
+  profilePicture?: string | null; // <--- FIX: Added profilePicture field
 }
 
 export interface NgoPost {

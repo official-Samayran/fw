@@ -84,7 +84,7 @@ const FormInput: React.FC<any> = ({ id, label, required, as = 'input', children,
   </div>
 );
 
-// --- MODIFIED File/Image Upload Component for Previews ---
+// --- MODIFIED File/Image Upload Component for Previews (unchanged) ---
 const FileUploadSection: React.FC<{ 
     label: string; 
     icon: React.ElementType;
@@ -152,7 +152,7 @@ const FileUploadSection: React.FC<{
                 {/* Upload Button */}
                 {canUpload && (
                     <label
-                        htmlFor={inputId}
+                        htmlFor={`file-upload-${label.replace(/\s+/g, '-')}`}
                         className={cn(
                             "flex flex-col items-center justify-center p-3 rounded-xl border-2 border-dashed transition cursor-pointer",
                             "border-[#2F235A] bg-[#E7E1F6] hover:bg-[#D6CCE8] text-[#22163F] h-24 w-24 text-xs font-semibold",
@@ -162,7 +162,7 @@ const FileUploadSection: React.FC<{
                         <UploadCloud size={24} className="mb-1" />
                         {allowMultiple ? "Add More" : "Upload"}
                         <input
-                            id={inputId}
+                            id={`file-upload-${label.replace(/\s+/g, '-')}`}
                             type="file"
                             className="sr-only"
                             accept={fileTypes}
@@ -193,10 +193,10 @@ export default function CreateAuctionPage() {
     shortDescription: "",
     detailedDescription: "",
     startingPrice: "", 
-    bidIncrement: "",
+    bidIncrement: "100", // <-- Added default
     reservePrice: "",
     buyNowPrice: "",
-    startDate: "",
+    startDate: new Date().toISOString().substring(0, 16), // <-- Added default to today's time
     endDate: "",
     ngo: MOCK_NGOS[0],
     titleImage: null, 
@@ -221,7 +221,7 @@ export default function CreateAuctionPage() {
     });
   };
 
-  // --- HANDLERS FOR PRIMARY IMAGE ---
+  // --- HANDLERS FOR PRIMARY IMAGE (unchanged) ---
   const handleTitleImageSelect = async (files: File[]) => {
     if (files.length === 0) return;
     try {
@@ -236,7 +236,7 @@ export default function CreateAuctionPage() {
     setFormData(prev => ({ ...prev, titleImage: null }));
   }, []);
 
-  // --- HANDLERS FOR SECONDARY IMAGES ---
+  // --- HANDLERS FOR SECONDARY IMAGES (unchanged) ---
   const handleSecondaryImagesSelect = async (files: File[]) => {
     // Basic max file check for instant feedback
     if (formData.secondaryImages.length + files.length > 4) {
@@ -255,7 +255,7 @@ export default function CreateAuctionPage() {
     setFormData(prev => ({ ...prev, secondaryImages: prev.secondaryImages.filter(url => url !== dataUrlToRemove) }));
   }, []);
 
-  // --- HANDLERS FOR AUTH PROOF ---
+  // --- HANDLERS FOR AUTH PROOF (unchanged) ---
   const handleProofSelect = async (files: File[]) => {
     try {
         const base64Url = await fileToBase64(files[0]);
@@ -274,13 +274,13 @@ export default function CreateAuctionPage() {
     e.preventDefault();
     setError(""); 
 
-    // --- FRONT-END VALIDATION ---
-    if (!formData.title || !formData.detailedDescription) {
-        setError("Please provide a Title and a Detailed Description.");
+    // --- FRONT-END VALIDATION (MODIFIED for new required fields) ---
+    if (!formData.title || !formData.shortDescription || !formData.detailedDescription) {
+        setError("Please provide a Title, Short Summary, and Detailed Description.");
         return;
     }
-    if (!formData.startingPrice || !formData.endDate) {
-        setError("Starting Price and End Date are mandatory.");
+    if (!formData.startingPrice || !formData.endDate || !formData.bidIncrement || !formData.startDate) {
+        setError("Starting Price, Bid Increment, Start Date, and End Date are mandatory.");
         return;
     }
     if (!formData.isConfirmed) {
@@ -292,22 +292,54 @@ export default function CreateAuctionPage() {
         return;
     }
     
-    // API Validation Check
-    const numericBid = Number(formData.startingPrice);
-    if (isNaN(numericBid) || numericBid <= 0) {
+    // API Validation Check - Prices
+    const numericStartingPrice = Number(formData.startingPrice);
+    const numericBidIncrement = Number(formData.bidIncrement);
+    const numericReservePrice = formData.reservePrice ? Number(formData.reservePrice) : null;
+    const numericBuyNowPrice = formData.buyNowPrice ? Number(formData.buyNowPrice) : null;
+
+    if (isNaN(numericStartingPrice) || numericStartingPrice <= 0) {
         setError("Starting Price must be a valid positive number.");
         return;
     }
+    if (isNaN(numericBidIncrement) || numericBidIncrement <= 0) {
+        setError("Bid Increment must be a valid positive number.");
+        return;
+    }
+    if (numericReservePrice !== null && isNaN(numericReservePrice)) {
+        setError("Reserve Price must be a valid number.");
+        return;
+    }
+    if (numericBuyNowPrice !== null && isNaN(numericBuyNowPrice)) {
+        setError("Buy Now Price must be a valid number.");
+        return;
+    }
+    
+    // API Validation Check - Dates
+    const startDateObj = new Date(formData.startDate);
+    const endDateObj = new Date(formData.endDate);
+    if(endDateObj <= startDateObj) {
+        setError("End Date must be after the Start Date.");
+        return;
+    }
+
 
     setLoading(true);
 
+    // --- DATA TO SEND (MODIFIED to include all new fields) ---
     const dataToSend = {
       title: formData.title,
-      startingBid: numericBid,
+      startingPrice: numericStartingPrice,
+      bidIncrement: numericBidIncrement,
+      reservePrice: numericReservePrice,
+      buyNowPrice: numericBuyNowPrice,
       category: formData.category,
-      description: formData.detailedDescription,
+      shortDescription: formData.shortDescription,
+      detailedDescription: formData.detailedDescription,
+      startDate: formData.startDate,
       endDate: formData.endDate,
       titleImage: formData.titleImage,
+      // Note: Secondary images, proofOfAuth, and NGO selection are not yet handled by the API backend.
     };
 
     try {
@@ -326,7 +358,7 @@ export default function CreateAuctionPage() {
         if (res.status === 403) {
             errorMessage = "ACCESS DENIED: Only a logged-in 'Celebrity' account can create auctions.";
         } else if (res.status === 400 && data.error && data.error.includes("Missing required fields")) {
-             errorMessage = "Missing required fields: Check Title, Starting Price, and End Date.";
+             errorMessage = "Missing required fields: Check Title, Prices, Start/End Dates, and Descriptions.";
         }
         // --- END ENHANCED ERROR MESSAGING ---
         
@@ -360,14 +392,13 @@ export default function CreateAuctionPage() {
 
         <form onSubmit={handleSubmit}>
             
-            {/* E. IMAGES (MODIFIED TO BE LEFT/RIGHT GRID) */}
+            {/* E. IMAGES (unchanged) */}
             <section className="border-b border-gray-100 pb-8 mb-8">
                 <div className="flex items-center gap-3 mb-6">
                     <ImageIcon size={24} className="text-[#D9A441]" />
                     <h2 className="text-xl font-bold text-[#22163F]">Product Images & Gallery</h2>
                 </div>
                 
-                {/* NEW GRID CONTAINER for Left/Right Alignment */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     
                     {/* LEFT COLUMN: TITLE / PRIMARY IMAGE */}
@@ -405,7 +436,7 @@ export default function CreateAuctionPage() {
                 </div>
             </section>
 
-            {/* A. BASIC INFO */}
+            {/* A. BASIC INFO (unchanged) */}
             <section className="border-b border-gray-100 pb-8 mb-8">
                 <div className="flex items-center gap-3 mb-4">
                     <Tag size={24} className="text-[#D9A441]" />
@@ -455,7 +486,7 @@ export default function CreateAuctionPage() {
             </section>
 
 
-            {/* B. PRICING */}
+            {/* B. PRICING (updated labels/steps) */}
             <section className="border-b border-gray-100 pb-8 mb-8">
                 <div className="flex items-center gap-3 mb-4">
                     <DollarSign size={24} className="text-[#D9A441]" />
@@ -465,7 +496,7 @@ export default function CreateAuctionPage() {
                 <div className="grid grid-cols-2 gap-4">
                     <FormInput 
                         id="startingPrice" 
-                        label="Starting Price (₹)" 
+                        label="Starting Price (₹) *" 
                         type="number" 
                         placeholder="Min Bid to start (Required by API)"
                         value={formData.startingPrice}
@@ -475,9 +506,9 @@ export default function CreateAuctionPage() {
                     />
                     <FormInput 
                         id="bidIncrement" 
-                        label="Bid Increment (₹)" 
+                        label="Bid Increment (₹) *" 
                         type="number" 
-                        placeholder="e.g. 100"
+                        placeholder="e.g. 100 (Required by API)"
                         value={formData.bidIncrement}
                         onChange={handleChange}
                         required
@@ -504,7 +535,7 @@ export default function CreateAuctionPage() {
                 </div>
             </section>
             
-            {/* C. DATES */}
+            {/* C. DATES (updated labels) */}
             <section className="border-b border-gray-100 pb-8 mb-8">
                 <div className="flex items-center gap-3 mb-4">
                     <Clock size={24} className="text-[#D9A441]" />
@@ -514,7 +545,7 @@ export default function CreateAuctionPage() {
                 <div className="grid grid-cols-2 gap-4">
                     <FormInput 
                         id="startDate" 
-                        label="Start Date & Time" 
+                        label="Start Date & Time *" 
                         type="datetime-local"
                         value={formData.startDate}
                         onChange={handleChange}
@@ -522,7 +553,7 @@ export default function CreateAuctionPage() {
                     />
                     <FormInput 
                         id="endDate" 
-                        label="End Date & Time" 
+                        label="End Date & Time *" 
                         type="datetime-local"
                         min={formData.startDate} // Basic validation
                         value={formData.endDate}
@@ -532,7 +563,7 @@ export default function CreateAuctionPage() {
                 </div>
             </section>
 
-            {/* D. NGO / CAUSE */}
+            {/* D. NGO / CAUSE (unchanged) */}
             <section className="border-b border-gray-100 pb-8 mb-8">
                 <div className="flex items-center gap-3 mb-4">
                     <Handshake size={24} className="text-[#D9A441]" />
@@ -558,7 +589,7 @@ export default function CreateAuctionPage() {
             </section>
             
             
-            {/* F. VERIFICATION */}
+            {/* F. VERIFICATION (unchanged) */}
             <section className="pb-8">
                 <div className="flex items-center gap-3 mb-4">
                     <CheckCircle size={24} className="text-[#D9A441]" />

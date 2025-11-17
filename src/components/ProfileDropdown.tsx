@@ -1,15 +1,15 @@
-// src/components/ProfileDropdown.tsx (MODIFIED)
+// src/components/ProfileDropdown.tsx
 "use client";
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { signOut } from "next-auth/react";
-import { LogOut, User, ChevronDown, LayoutDashboard } from "lucide-react"; // <--- ADDED LayoutDashboard icon
+import { signOut, useSession } from "next-auth/react"; // <--- Added useSession here for context, though it's not strictly necessary if role is passed in props
+import { LogOut, User, ChevronDown, LayoutDashboard } from "lucide-react";
 import UserAvatar from "./UserAvatar"; 
 
 interface Props {
   userName: string;
-  userRole?: string;
+  userRole?: string; // Keep as optional string for external prop compatibility
 }
 
 // NEW helper component for the dropdown header, showing avatar + name/role side-by-side
@@ -49,10 +49,13 @@ export default function ProfileDropdown({ userName, userRole }: Props) {
     signOut();
   };
 
+  const isCelebrity = userRole === 'celebrity'; // <--- Safer check
+
   // --- MODIFIED: Added Dashboard link conditionally ---
   const menuItems = [
     { label: "My Profile", href: "/profile/me", icon: User },
-    ...(userRole === 'celebrity' ? [{ label: "My Dashboard", href: "/dashboard/auctions", icon: LayoutDashboard }] : [])
+    // Use the explicit boolean check
+    ...(isCelebrity ? [{ label: "My Dashboard", href: "/dashboard/auctions", icon: LayoutDashboard }] : [])
   ];
   // --- END MODIFIED ---
 
@@ -62,13 +65,11 @@ export default function ProfileDropdown({ userName, userRole }: Props) {
       {/* Avatar Button (Closed State: ONLY PIC) */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        // MODIFIED: Removed 'gap-2' and tightened padding to frame just the avatar
         className="flex items-center p-0.5 rounded-full transition bg-white border border-[#E6E3DD] hover:border-[#2F235A]"
         aria-expanded={isOpen}
         aria-label="User Profile Menu"
       >
         <UserAvatar size="small" /> 
-        {/* Removed ChevronDown from here, as requested */}
       </button>
 
       {/* Dropdown Menu */}

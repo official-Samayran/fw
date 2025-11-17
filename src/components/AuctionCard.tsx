@@ -22,18 +22,9 @@ interface Props {
   isInitiallyWishlisted: boolean;
 }
 
-function safeFormatDate(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) {
-      return "N/A";
-    }
-    // This is the line that causes the mismatch, which is fine
-    return date.toLocaleDateString(); 
-  } catch (error) {
-    return "N/A";
-  }
-}
+// --- REMOVED: safeFormatDate helper is unnecessary with suppressHydrationWarning ---
+
+// Function now inline or removed, relying on standard Date/Locale methods.
 
 export default function AuctionCard({ auction, isInitiallyWishlisted }: Props) {
   
@@ -121,12 +112,9 @@ export default function AuctionCard({ auction, isInitiallyWishlisted }: Props) {
           </div>
           <div>
             <p className="text-xs text-gray-500">Ends In</p>
-            {/* THIS IS THE FIX: 
-              We add suppressHydrationWarning={true} to the <p> tag
-              that contains the locale-sensitive date.
-            */}
+            {/* FIX: Use toLocaleDateString directly since warning suppression is enabled */}
             <p className="font-bold" suppressHydrationWarning={true}>
-              {safeFormatDate(auction.endDate)}
+              {new Date(auction.endDate).toLocaleDateString()}
             </p>
           </div>
         </div>
